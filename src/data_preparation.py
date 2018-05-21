@@ -89,24 +89,24 @@ data_all["Age"] = data_all.apply(lambda row: kde[row["Pclass"]-1].sample()[0][1]
 #plt.show()
 
 #################################################### CREATE INTERVALS ##############################################################
-table_check = pd.merge(data_train_labels, data_all, on=['PassengerId','PassengerId'])
-table_fare = pd.DataFrame(table_check, columns = ['Fare', 'Survived'])
-table_age = pd.DataFrame(table_check, columns = ['Age', 'Survived'])
-
-table_fare['Fare'] = pd.qcut(table_fare['Fare'], 6)
-fares = [7.775, 8.662, 14.454, 26.0, 52.369]
-data_all.loc[data_all['Fare'] <= fares[0], 'Fare'] = 0
-for i in range(len(fares)-1):
-    data_all.loc[(data_all['Fare'] <= fares[i+1]) & (data_all['Fare'] > fares[i]), 'Fare'] = i+1
-data_all.loc[data_all['Fare'] > fares[len(fares)-1], 'Fare'] = len(fares)
+# table_check = pd.merge(data_train_labels, data_all, on=['PassengerId','PassengerId'])
+# table_fare = pd.DataFrame(table_check, columns = ['Fare', 'Survived'])
+# table_age = pd.DataFrame(table_check, columns = ['Age', 'Survived'])
+#
+# table_fare['Fare'] = pd.qcut(table_fare['Fare'], 6)
+# fares = [7.775, 8.662, 14.454, 26.0, 52.369]
+# data_all.loc[data_all['Fare'] <= fares[0], 'Fare'] = 0
+# for i in range(len(fares)-1):
+#     data_all.loc[(data_all['Fare'] <= fares[i+1]) & (data_all['Fare'] > fares[i]), 'Fare'] = i+1
+# data_all.loc[data_all['Fare'] > fares[len(fares)-1], 'Fare'] = len(fares)
 data_all['Fare'] = data_all['Fare'].astype(int)
 
-table_age['Age'] = pd.qcut(table_age['Age'], 6)
-ages = [17.822, 22.0, 28.0, 36.868, 43.0]
-data_all.loc[data_all['Age'] <= ages[0], 'Age'] = 0
-for i in range(len(ages)-1):
-    data_all.loc[(data_all['Age'] <= ages[i+1]) & (data_all['Age'] > ages[i]), 'Age'] = i+1
-data_all.loc[data_all['Age'] > ages[len(ages)-1], 'Age'] = len(ages)
+# table_age['Age'] = pd.qcut(table_age['Age'], 6)
+# ages = [17.822, 22.0, 28.0, 36.868, 43.0]
+# data_all.loc[data_all['Age'] <= ages[0], 'Age'] = 0
+# for i in range(len(ages)-1):
+#     data_all.loc[(data_all['Age'] <= ages[i+1]) & (data_all['Age'] > ages[i]), 'Age'] = i+1
+# data_all.loc[data_all['Age'] > ages[len(ages)-1], 'Age'] = len(ages)
 data_all['Age'] = data_all['Age'].astype(int)
 
 test_data = data_all[data_all["trainOrTest"] == 'test']
@@ -117,8 +117,8 @@ test_data = test_data.drop(["trainOrTest"], axis=1)
 train_data = train_data.drop(["trainOrTest"], axis=1)
 
 ############################################## SAVE TO CSV ########################################################
-test_data.to_csv('.\\..\\data\\test.csv', sep='\t', encoding='utf-8', index=False)
-train_data.to_csv('.\\..\\data\\train.csv', sep='\t', encoding='utf-8', index=False)
+test_data.to_csv('.\\..\\data\\test_without_intervals.csv', sep='\t', encoding='utf-8', index=False)
+train_data.to_csv('.\\..\\data\\train_without_intervals.csv', sep='\t', encoding='utf-8', index=False)
 
 if __name__ == '__main__':
     print('-'*60)
