@@ -3,53 +3,65 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 import xgboost as xgb
 import datetime
-from sklearn.cross_validation import cross_val_score
+from sklearn import cross_validation, metrics
+from sklearn.grid_search import GridSearchCV
 from sklearn.cross_validation import train_test_split
 from sklearn.datasets import dump_svmlight_file
 from sklearn.metrics import precision_score
 from matplotlib import pyplot as plt
 
-class RanForMod():
-    def __init__(self):
-        self.classifier = RandomForestClassifier(n_estimators=100)
+PREDICTORS = ['Pclass', 'Title', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare', 'Embarked']
+TARGET = 'Survived'
 
-    def trainModel(self, train_X, train_y):
-        self.train_X_dropped = train_X.drop(['PassengerId'], axis=1)
-        self.classifier.fit(self.train_X_dropped, train_y)
 
-    def predict(self, test_X, test_y = None):
-        self.test_X_dropped = test_X.drop(['PassengerId'], axis=1)
-        self.test_X = test_X
-        self.Y_pred = self.classifier.predict(self.test_X_dropped)
-        self.Y_pred = pd.DataFrame(data={'Survived':self.Y_pred})
-        if test_y is not None:
-            print("Classifier score - RandomForest - ", str(self.classifier.score(self.test_X_dropped, test_y)))
-        return self.Y_pred
+def modelfit(alg, dtrain, predictors, target, useTrainCV=True, cv_folds=5, early_stopping_rounds=50):
+    if useTrainCV:
+        xgb_param = alg.get_xgb_params()
+        xgtrain = xgb.DMatrix(dtrain[predictors].values, label=dtrain[target].values)
+        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=alg.get_params()['n_estimators'], nfold=cv_folds,
+                          metrics='auc', early_stopping_rounds=early_stopping_rounds)
+        alg.set_params(n_estimators=cvresult.shape[0])
 
-    def savePredictionCSV(self, out_dir):
-        time_stamp = datetime.datetime.now().strftime('__%Y_%m_%d__%H_%M_%S.csv')
-        out = self.test_X.join(self.Y_pred)
-        out = pd.DataFrame(out, columns=['PassengerId', 'Survived'])
-        out.to_csv(out_dir+time_stamp, sep=',', encoding='utf-8', index=False)
+    # Fit the algorithm on the data
+    alg.fit(dtrain[predictors], dtrain[target], eval_metric='auc')
 
+    # Predict training set:
+    dtrain_predictions = alg.predict(dtrain[predictors])
+    dtrain_predprob = alg.predict_proba(dtrain[predictors])[:, 1]
+
+    # Print model report:
+    print("\nModel Report")
+    print("Accuracy (Train): %.4g" % metrics.accuracy_score(dtrain[target].values, dtrain_predictions))
+    print("AUC Score (Train): %f" % metrics.roc_auc_score(dtrain[target], dtrain_predprob))
+
+    #feat_imp = pd.Series(alg.booster().get_fscore()).sort_values(ascending=False)
+    #feat_imp.plot(kind='bar', title='Feature Importances')
+    #plt.ylabel('Feature Importance Score')
 
 class XgbMod():
-    def __init__(self):
-        self.classifier = xgb.XGBClassifier(n_estimators=20, seed=41, max_depth=8)
+    def __init__(self, params=None):
+        if params==None:
+            self.params = {"n_estimators": 20, "seed": 41, 'max_depth': 8}
+            self.classifier = xgb.XGBClassifier(self.params)
+        else:
+            self.params = params
+            self.classifier = xgb.XGBClassifier(**self.params)
 
-    def trainModel(self, train_X, train_y):
-        self.train_X_dropped = train_X.drop(['PassengerId'], axis=1)
+    def trainModel(self, data_train_X, data_train_y):
+        self.data_train_X = data_train_X
+        self.data_train_y = data_train_y
+        data_train = data_train_X.join(data_train_y)
+        modelfit(self.classifier, data_train, PREDICTORS, TARGET, useTrainCV=True, cv_folds=5, early_stopping_rounds=50)
 
-        self.classifier.fit(self.train_X_dropped, train_y)
-
-    def predict(self, test_X, test_y=None):
-        self.test_X_dropped = test_X.drop(['PassengerId'], axis=1)
-        self.test_X = test_X
-
-        self.Y_pred = self.classifier.predict(self.test_X_dropped)
+    def predict(self, data_test_X, data_test_y=None):
+        self.data_test_X = data_test_X
+        #print(data_test[PREDICTORS].info())
+        #self.xgtest = xgb.DMatrix(data_test[PREDICTORS])
+        self.Y_pred = self.classifier.predict(data_test_X[PREDICTORS])
         self.Y_pred = pd.DataFrame(data={'Survived': self.Y_pred})
-        if test_y is not None:
-            print("Classifier score - XGboost - ", str(self.classifier.score(self.test_X_dropped, test_y)))
+        #print(self.Y_pred)
+        if data_test_y is not None:
+            print("Classifier accuracy score on TEST SET - XGboost - ", str(metrics.accuracy_score(self.Y_pred, data_test_y)))
         return self.Y_pred
 
     def plotTraining(self):
@@ -59,33 +71,73 @@ class XgbMod():
 
     def savePredictionCSV(self, out_dir):
         time_stamp = datetime.datetime.now().strftime('__%Y_%m_%d__%H_%M_%S.csv')
-        out = self.test_X.join(self.Y_pred)
+        out = self.data_test_X.join(self.Y_pred)
         out = pd.DataFrame(out, columns=['PassengerId', 'Survived'])
         out.to_csv(out_dir + time_stamp, sep=',', encoding='utf-8', index=False)
 
     def plotTraining(self):
         xgb.plot_importance(self.classifier)
-        xgb.plot_tree(self.classifier)
+        #xgb.plot_tree(self.classifier)
         plt.show()
 
+    def makeCVsearch(self, params, data_train_X, data_train_y):
+        cvsearch = GridSearchCV(estimator=xgbm.classifier, param_grid=params, scoring='roc_auc', n_jobs=4, iid=False,
+                             cv=5)
+        cvsearch.fit(data_train_X[PREDICTORS], data_train_y[TARGET])
+        for score in cvsearch.grid_scores_:
+            print(score)
+        print('-' * 30)
+        print(cvsearch.best_params_)
+        print('-' * 30)
+        print(cvsearch.best_score_)
+
+
 if __name__=='__main__':
-    data_train = pd.read_csv(filepath_or_buffer="..\\data\\train_without_intervals.csv", delimiter='\t')
-    data_train_y = np.asarray(data_train['Survived'])
+    data_train = pd.read_csv(filepath_or_buffer="..\\data\\train_with_intervals.csv", delimiter='\t')
+    #data_train_y = np.asarray(data_train['Survived'])
+    data_train_y = pd.DataFrame(data_train['Survived'])
     data_train_X = data_train.drop(['Survived'], axis=1)
-    data_test_X = pd.read_csv("..\\data\\test_without_intervals.csv", delimiter='\t')
+    data_test_X = pd.read_csv("..\\data\\test_with_intervals.csv", delimiter='\t')
     split_X_train, split_X_test, split_y_train, split_y_test = train_test_split(data_train_X, data_train_y, test_size=0.2, random_state=42)
 
-    #Random Forest classifier
-    rfm = RanForMod()
-    rfm.trainModel(split_X_train, split_y_train)
-    rfm.predict(split_X_test, split_y_test)
-    rfm.plotTraining()
-    #rfm.savePredictionCSV("..\\analysis\\upload_2")
+    #first stap -
+    params = {"n_estimators": 1000,
+              "seed": 27,
+              "max_depth": 2,
+              "min_child_weight": 5,
+              "gamma": 0.3,
+              "colsample_bytree": 0.65,
+              "subsample": 0.4,
+              "reg_alpha": 0
+              }
+    #second stap
+    #params = {"n_estimators": 1000, "seed": 41, 'max_depth': 7}
 
-    xgbm = XgbMod()
-    xgbm.trainModel(split_X_train, split_y_train)
-    xgbm.predict(split_X_test, split_y_test)
-    #xgbm.plotTraining()
-    print(xgbm.classifier)
-    #xgbm.savePredictionCSV("..\\analysis\\upload_2_xgb")
+    xgbm = XgbMod(params)
+    xgbm.trainModel(data_train_X, data_train_y)
+    xgbm.predict(data_test_X)
+
+    #param_test_1 = {'max_depth': list(range(2, 12, 1)),
+    #               'min_child_weight': list(range(1, 6, 1))}
+    #param_test_2 = {'gamma':[i/10.0 for i in range(0,5)]}
+    # param_test_3 = {
+    #     'subsample': [i / 10.0 for i in range(1, 10)],
+    #     'colsample_bytree': [i / 10.0 for i in range(1, 10)]
+    # }
+    # param_test_4 = {
+    #     'subsample': [i / 100.0 for i in range(35, 45)],
+    #     'colsample_bytree': [i / 100.0 for i in range(65, 75)]
+    # }
+    # param_test_5 = {
+    #     'reg_alpha': [1e-5, 1e-2, 0.1, 1, 100]
+    # }
+    # param_test_6 = {
+    #     'reg_alpha': [0, 1e-10, 1e-6, 1e-5, 1e-4, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
+    # }
+    #param_test_7 = {'learning_rate': [0.01,0.03,0.01,0.03]}
+
+    #xgbm.makeCVsearch(param_test_7,data_train_X, data_train_y)
+
+    xgbm.plotTraining()
+    #xgbm.savePredictionCSV("..\\analysis\\upload_3_xgb")
 
