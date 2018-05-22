@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 
 PREDICTORS = ['Pclass', 'Title', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare', 'Embarked']
 TARGET = 'Survived'
+ID_COLUMN = 'PassengerId'
 
 
 def modelfit(alg, dtrain, predictors, target, useTrainCV=True, cv_folds=5, early_stopping_rounds=50):
@@ -34,13 +35,9 @@ def modelfit(alg, dtrain, predictors, target, useTrainCV=True, cv_folds=5, early
     print("Accuracy (Train): %.4g" % metrics.accuracy_score(dtrain[target].values, dtrain_predictions))
     print("AUC Score (Train): %f" % metrics.roc_auc_score(dtrain[target], dtrain_predprob))
 
-    #feat_imp = pd.Series(alg.booster().get_fscore()).sort_values(ascending=False)
-    #feat_imp.plot(kind='bar', title='Feature Importances')
-    #plt.ylabel('Feature Importance Score')
-
 class XgbMod():
     def __init__(self, params=None):
-        if params==None:
+        if params is None:
             self.params = {"n_estimators": 20, "seed": 41, 'max_depth': 8}
             self.classifier = xgb.XGBClassifier(self.params)
         else:
@@ -55,11 +52,8 @@ class XgbMod():
 
     def predict(self, data_test_X, data_test_y=None):
         self.data_test_X = data_test_X
-        #print(data_test[PREDICTORS].info())
-        #self.xgtest = xgb.DMatrix(data_test[PREDICTORS])
         self.Y_pred = self.classifier.predict(data_test_X[PREDICTORS])
         self.Y_pred = pd.DataFrame(data={'Survived': self.Y_pred})
-        #print(self.Y_pred)
         if data_test_y is not None:
             print("Classifier accuracy score on TEST SET - XGboost - ", str(metrics.accuracy_score(self.Y_pred, data_test_y)))
         return self.Y_pred
@@ -72,13 +66,8 @@ class XgbMod():
     def savePredictionCSV(self, out_dir):
         time_stamp = datetime.datetime.now().strftime('__%Y_%m_%d__%H_%M_%S.csv')
         out = self.data_test_X.join(self.Y_pred)
-        out = pd.DataFrame(out, columns=['PassengerId', 'Survived'])
+        out = pd.DataFrame(out, columns=[ID_COLUMN, TARGET])
         out.to_csv(out_dir + time_stamp, sep=',', encoding='utf-8', index=False)
-
-    def plotTraining(self):
-        xgb.plot_importance(self.classifier)
-        #xgb.plot_tree(self.classifier)
-        plt.show()
 
     def makeCVsearch(self, params, data_train_X, data_train_y):
         cvsearch = GridSearchCV(estimator=xgbm.classifier, param_grid=params, scoring='roc_auc', n_jobs=4, iid=False,
@@ -94,9 +83,8 @@ class XgbMod():
 
 if __name__=='__main__':
     data_train = pd.read_csv(filepath_or_buffer="..\\data\\train_with_intervals.csv", delimiter='\t')
-    #data_train_y = np.asarray(data_train['Survived'])
-    data_train_y = pd.DataFrame(data_train['Survived'])
-    data_train_X = data_train.drop(['Survived'], axis=1)
+    data_train_y = pd.DataFrame(data_train[TARGET])
+    data_train_X = data_train.drop([TARGET], axis=1)
     data_test_X = pd.read_csv("..\\data\\test_with_intervals.csv", delimiter='\t')
     split_X_train, split_X_test, split_y_train, split_y_test = train_test_split(data_train_X, data_train_y, test_size=0.2, random_state=42)
 
@@ -104,40 +92,27 @@ if __name__=='__main__':
     params = {"n_estimators": 1000,
               "seed": 27,
               "max_depth": 2,
-              "min_child_weight": 5,
+              "min_child_weight": 4,
               "gamma": 0.3,
               "colsample_bytree": 0.65,
               "subsample": 0.4,
               "reg_alpha": 0
               }
-    #second stap
-    #params = {"n_estimators": 1000, "seed": 41, 'max_depth': 7}
 
     xgbm = XgbMod(params)
     xgbm.trainModel(data_train_X, data_train_y)
     xgbm.predict(data_test_X)
 
-    #param_test_1 = {'max_depth': list(range(2, 12, 1)),
-    #               'min_child_weight': list(range(1, 6, 1))}
-    #param_test_2 = {'gamma':[i/10.0 for i in range(0,5)]}
-    # param_test_3 = {
-    #     'subsample': [i / 10.0 for i in range(1, 10)],
-    #     'colsample_bytree': [i / 10.0 for i in range(1, 10)]
-    # }
-    # param_test_4 = {
-    #     'subsample': [i / 100.0 for i in range(35, 45)],
-    #     'colsample_bytree': [i / 100.0 for i in range(65, 75)]
-    # }
-    # param_test_5 = {
-    #     'reg_alpha': [1e-5, 1e-2, 0.1, 1, 100]
-    # }
-    # param_test_6 = {
-    #     'reg_alpha': [0, 1e-10, 1e-6, 1e-5, 1e-4, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
-    # }
+    #param_test_1 = {'max_depth': list(range(6, 12, 1)), 'min_child_weight': list(range(6, 10, 1))}
+    #param_test_2 = {'gamma':[i/20.0 for i in range(2,8)]}
+    #param_test_3 = {'subsample': [i / 10.0 for i in range(1, 10)], 'colsample_bytree': [i / 10.0 for i in range(1, 10)]}
+    #param_test_4 = {'subsample': [i / 100.0 for i in range(25, 35)], 'colsample_bytree': [i / 100.0 for i in range(45, 55)]}
+    #param_test_5 = {'reg_alpha': [0, 1e-5, 1e-2, 0.1, 1, 100]}
+    #param_test_6 = {'reg_alpha': [0, 1e-10, 1e-6, 1e-5, 1e-4, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]}
     #param_test_7 = {'learning_rate': [0.01,0.03,0.01,0.03]}
-
-    #xgbm.makeCVsearch(param_test_7,data_train_X, data_train_y)
+    #xgbm.makeCVsearch(param_test_1,data_train_X, data_train_y)
 
     xgbm.plotTraining()
-    #xgbm.savePredictionCSV("..\\analysis\\upload_3_xgb")
+
+    xgbm.savePredictionCSV("..\\analysis\\upload_5_xgb")
 
